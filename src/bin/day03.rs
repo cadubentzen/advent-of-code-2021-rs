@@ -1,8 +1,8 @@
 const INPUT: &str = include_str!("../../inputs/day03.txt");
 
 fn main() {
-    let report = parse_input(INPUT);
-    let (gamma_rate, epsilon_rate) = calculate_gamma_and_epsilon(&report);
+    let report: Report = INPUT.parse().unwrap();
+    let (gamma_rate, epsilon_rate) = report.calculate_gamma_and_epsilon();
     println!(
         "gamma_rate = {}, epsilon_rate = {}, answer 1 = {}",
         gamma_rate,
@@ -10,8 +10,8 @@ fn main() {
         gamma_rate * epsilon_rate
     );
 
-    let oxygen_rate = calculate_oxygen_rate(&report);
-    let co2_rate = calculate_co2_rate(&report);
+    let oxygen_rate = report.calculate_oxygen();
+    let co2_rate = report.calculate_co2();
     println!(
         "oxygen_rate = {}, co2_rate = {}, answer 2 = {}",
         oxygen_rate,
@@ -20,111 +20,84 @@ fn main() {
     )
 }
 
-#[derive(Debug, Clone)]
-struct BinaryVec(Vec<bool>);
+struct Report {
+    values: Vec<usize>,
+    num_bits: usize,
+}
 
-impl std::str::FromStr for BinaryVec {
+impl std::str::FromStr for Report {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(v) = s
-            .chars()
-            .map(|c| match c {
-                '0' => Some(false),
-                '1' => Some(true),
-                _ => None,
-            })
-            .collect::<Option<Vec<_>>>()
-        {
-            return Ok(BinaryVec(v));
-        }
-        Err(())
+        let values = s
+            .lines()
+            .map(|line| usize::from_str_radix(line, 2).unwrap())
+            .collect();
+
+        assert!(s.lines().next().is_some());
+        Ok(Report {
+            values,
+            num_bits: s.lines().next().unwrap().len(),
+        })
     }
 }
 
-impl<const N: usize> PartialEq<[bool; N]> for BinaryVec {
-    fn eq(&self, other: &[bool; N]) -> bool {
-        self.0 == other
-    }
-}
-
-fn parse_input(input: &str) -> Vec<BinaryVec> {
-    input.lines().map(|line| line.parse().unwrap()).collect()
-}
-
-fn most_common_value_in_position(report: &[BinaryVec], i: usize) -> Option<bool> {
+fn most_common_value_in_position(values: &[usize], pos: usize) -> Option<usize> {
     let mut count = 0;
-    for BinaryVec(r) in report {
-        match r[i] {
-            true => count += 1,
-            false => count -= 1,
+    for v in values {
+        match (v >> pos) & 0b1 {
+            1 => count += 1,
+            0 => count -= 1,
+            _ => unreachable!(),
         }
     }
-    let result = if count == 0 { None } else { Some(count > 0) };
-    result
-}
 
-fn calculate_gamma_and_epsilon(report: &[BinaryVec]) -> (usize, usize) {
-    assert!(report.len() != 0);
-    let num_bits = report[0].0.len();
-    let mut gamma_rate = vec![false; num_bits];
-
-    for i in 0..num_bits {
-        gamma_rate[i] = most_common_value_in_position(report, i).unwrap();
+    match count {
+        _ if count > 0 => Some(1),
+        _ if count < 0 => Some(0),
+        _ => None,
     }
-
-    let epsilon_rate = BinaryVec(gamma_rate.iter().map(|bit| !bit).collect());
-    let gamma_rate = BinaryVec(gamma_rate);
-
-    let gamma_rate: usize = gamma_rate.into();
-    let epsilon_rate: usize = epsilon_rate.into();
-
-    (gamma_rate, epsilon_rate)
 }
 
-impl From<BinaryVec> for usize {
-    fn from(v: BinaryVec) -> Self {
-        let mut value = 0;
-        let num_bits = v.0.len();
-        let mut power = 0;
-        for i in (0..num_bits).rev() {
-            if v.0[i] {
-                value += usize::pow(2, power);
-            }
-
-            power += 1;
+impl Report {
+    fn calculate_gamma_and_epsilon(&self) -> (usize, usize) {
+        let mut gamma_rate = 0;
+        for i in 0..self.num_bits {
+            gamma_rate += most_common_value_in_position(&self.values, i).unwrap() << i;
         }
-        value
-    }
-}
+        let epsilon_rate = !gamma_rate & ((1 << self.num_bits) - 1);
 
-fn calculate_oxygen_rate(report: &[BinaryVec]) -> usize {
-    let mut candidates = Vec::from(report);
-    let mut bit_position = 0;
-    while candidates.len() > 1 {
-        let most_common = most_common_value_in_position(&candidates, bit_position).unwrap_or(true);
-        candidates = candidates
-            .into_iter()
-            .filter(|c| c.0[bit_position] == most_common)
-            .collect();
-        bit_position += 1;
+        (gamma_rate, epsilon_rate)
     }
-    candidates[0].clone().into()
-}
 
-fn calculate_co2_rate(report: &[BinaryVec]) -> usize {
-    let mut candidates = Vec::from(report);
-    let mut bit_position = 0;
-    while candidates.len() > 1 {
-        let least_common =
-            !most_common_value_in_position(&candidates, bit_position).unwrap_or(true);
-        candidates = candidates
-            .into_iter()
-            .filter(|c| c.0[bit_position] == least_common)
-            .collect();
-        bit_position += 1;
+    fn calculate_oxygen(&self) -> usize {
+        let mut candidates = self.values.clone();
+        let mut bit_position = self.num_bits;
+        while candidates.len() > 1 {
+            bit_position -= 1;
+            let most_common = most_common_value_in_position(&candidates, bit_position).unwrap_or(1);
+            candidates = candidates
+                .into_iter()
+                .filter(|v| ((v >> bit_position) & 0b1) == most_common)
+                .collect();
+        }
+        candidates[0]
     }
-    candidates[0].clone().into()
+
+    fn calculate_co2(&self) -> usize {
+        let mut candidates = self.values.clone();
+        let mut bit_position = self.num_bits;
+        while candidates.len() > 1 {
+            bit_position -= 1;
+            let least_common =
+                1 - most_common_value_in_position(&candidates, bit_position).unwrap_or(1);
+            candidates = candidates
+                .into_iter()
+                .filter(|v| ((v >> bit_position) & 0b1) == least_common)
+                .collect();
+        }
+        candidates[0]
+    }
 }
 
 #[cfg(test)]
@@ -147,32 +120,23 @@ mod tests {
 
     #[test]
     fn example() {
-        let report = parse_input(INPUT_EXAMPLE);
+        let report: Report = INPUT_EXAMPLE.parse().unwrap();
         assert_eq!(
-            report,
+            report.values,
             [
-                [false, false, true, false, false],
-                [true, true, true, true, false],
-                [true, false, true, true, false],
-                [true, false, true, true, true],
-                [true, false, true, false, true],
-                [false, true, true, true, true],
-                [false, false, true, true, true],
-                [true, true, true, false, false],
-                [true, false, false, false, false],
-                [true, true, false, false, true],
-                [false, false, false, true, false],
-                [false, true, false, true, false],
+                0b00100, 0b11110, 0b10110, 0b10111, 0b10101, 0b01111, 0b00111, 0b11100, 0b10000,
+                0b11001, 0b00010, 0b01010,
             ]
         );
+        assert_eq!(report.num_bits, 5);
 
-        let (gamma_rate, epsilon_rate) = calculate_gamma_and_epsilon(&report);
+        let (gamma_rate, epsilon_rate) = report.calculate_gamma_and_epsilon();
         assert_eq!(gamma_rate, 22);
         assert_eq!(epsilon_rate, 9);
         assert_eq!(gamma_rate * epsilon_rate, 198);
 
-        let oxygen_rate = calculate_oxygen_rate(&report);
-        let co2_rate = calculate_co2_rate(&report);
+        let oxygen_rate = report.calculate_oxygen();
+        let co2_rate = report.calculate_co2();
         assert_eq!(oxygen_rate, 23);
         assert_eq!(co2_rate, 10);
         assert_eq!(oxygen_rate * co2_rate, 230);
