@@ -1,7 +1,7 @@
 #![feature(hash_drain_filter)]
 use std::collections::HashSet;
 
-const INPUT: &str = include_str!("../../inputs/day13.txt");
+const INPUT: &str = include_str!("../../inputs/day13_hard.txt");
 
 fn main() {
     let (mut dots, folds) = parse_input(INPUT);
@@ -13,17 +13,17 @@ fn main() {
         fold(&mut dots, f);
     }
     println!("Answer 2:");
-    println!("{}", plot(&dots));
+    plot(&dots);
 }
 
 #[derive(Debug)]
 
 enum Fold {
-    X(u16),
-    Y(u16),
+    X(usize),
+    Y(usize),
 }
 
-fn parse_input(input: &str) -> (HashSet<(u16, u16)>, Vec<Fold>) {
+fn parse_input(input: &str) -> (HashSet<(usize, usize)>, Vec<Fold>) {
     let (dot_lines, fold_lines) = input.split_once("\n\n").unwrap();
 
     let dots = HashSet::from_iter(dot_lines.lines().map(|line| {
@@ -45,34 +45,41 @@ fn parse_input(input: &str) -> (HashSet<(u16, u16)>, Vec<Fold>) {
     (dots, folds)
 }
 
-fn fold(dots: &mut HashSet<(u16, u16)>, fold: &Fold) {
+fn fold(dots: &mut HashSet<(usize, usize)>, fold: &Fold) {
     match fold {
         Fold::X(xf) => {
             let foldable: HashSet<_> = dots.drain_filter(|(x, _)| x > xf).collect();
             for (x, y) in foldable {
-                dots.insert((2 * xf - x, y));
+                if let Some(x) = (2 * xf).checked_sub(x) {
+                    dots.insert((x, y));
+                }
             }
         }
         Fold::Y(yf) => {
             let foldable: HashSet<_> = dots.drain_filter(|(_, y)| y > yf).collect();
             for (x, y) in foldable {
-                dots.insert((x, 2 * yf - y));
+                if let Some(y) = (2 * yf).checked_sub(y) {
+                    dots.insert((x, y));
+                }
             }
         }
     }
 }
 
-fn plot(dots: &HashSet<(u16, u16)>) -> String {
+fn plot(dots: &HashSet<(usize, usize)>) {
     let max_x = dots.iter().max_by_key(|(x, _)| x).unwrap().0;
     let max_y = dots.iter().max_by_key(|(_, y)| y).unwrap().1;
 
-    let mut chars = vec![vec![' '; (max_x + 1).into()]; (max_y + 1).into()];
-    for (x, y) in dots {
-        chars[*y as usize][*x as usize] = '█';
+    for y in 0..(max_y + 1) {
+        for x in 0..(max_x + 1) {
+            if dots.contains(&(x, y)) {
+                print!("█");
+            } else {
+                print!(" ");
+            }
+        }
+        println!();
     }
-
-    let chars: Vec<String> = chars.into_iter().map(String::from_iter).collect();
-    chars.join("\n")
 }
 
 #[cfg(test)]
@@ -111,6 +118,6 @@ fold along x=5
 
         // Part 2
         fold(&mut dots, &folds[1]);
-        println!("{}", plot(&dots));
+        plot(&dots);
     }
 }
