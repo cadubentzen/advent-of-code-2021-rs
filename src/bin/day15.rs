@@ -1,4 +1,4 @@
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::BinaryHeap;
 
 const INPUT: &str = include_str!("../../inputs/day15.txt");
 
@@ -47,7 +47,7 @@ fn lowest_total_risk(cavern: &[Vec<u8>]) -> usize {
     let height = cavern.len();
     let width = cavern[0].len();
     let mut priority_queue = BinaryHeap::from([Path::default()]);
-    let mut visited = HashSet::new();
+    let mut visited = vec![vec![false; width]; height];
 
     while let Some(path) = priority_queue.pop() {
         for (dx, dy) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
@@ -60,13 +60,13 @@ fn lowest_total_risk(cavern: &[Vec<u8>]) -> usize {
                 return ((cavern[y][x] as i32) - path.risk) as usize;
             }
 
-            if !visited.contains(&(x, y)) {
+            if !visited[y][x] {
                 let new_path = Path {
                     current: (x, y),
                     risk: path.risk - cavern[y][x] as i32,
                 };
                 priority_queue.push(new_path);
-                visited.insert((x, y));
+                visited[y][x] = true;
             }
         }
     }
