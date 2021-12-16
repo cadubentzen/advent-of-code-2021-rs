@@ -81,8 +81,7 @@ impl std::str::FromStr for Line {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let v: Vec<u16> = s
             .split(" -> ")
-            .map(|p| p.split(',').map(|e| e.parse().unwrap()))
-            .flatten()
+            .flat_map(|p| p.split(',').map(|e| e.parse().unwrap()))
             .collect();
         let (x1, y1, x2, y2) = (v[0], v[1], v[2], v[3]);
         Ok(Line { x1, y1, x2, y2 })
