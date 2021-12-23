@@ -1,11 +1,14 @@
+#![allow(incomplete_features)]
 #![feature(int_abs_diff)]
+#![feature(const_trait_impl)]
+#![feature(generic_const_exprs)]
 
 use std::{fmt::Display, hash::Hash};
 
 const INPUT: &str = include_str!("../../inputs/day23.txt");
 
 fn main() {
-    let game_state: GameState = INPUT.parse().unwrap();
+    let game_state: GameState<2> = INPUT.parse().unwrap();
     println!("Answer 1: {}", solved_least_amount_of_energy(&game_state));
 }
 
@@ -37,6 +40,7 @@ enum Amphipod {
 }
 
 impl Amphipod {
+    #[inline]
     fn from(c: char) -> Self {
         match c {
             'A' => Self::Amber,
@@ -47,12 +51,23 @@ impl Amphipod {
         }
     }
 
+    #[inline]
     fn column(&self) -> usize {
         match self {
             Self::Amber => 2,
             Self::Bronze => 4,
             Self::Copper => 6,
             Self::Desert => 8,
+        }
+    }
+
+    #[inline]
+    fn energy_per_step(&self) -> usize {
+        match self {
+            Self::Amber => 1,
+            Self::Bronze => 10,
+            Self::Copper => 100,
+            Self::Desert => 1000,
         }
     }
 }
@@ -73,66 +88,79 @@ impl Display for Amphipod {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Cells([[Cell; 11]; 3]);
+struct Cells<const N: usize>([[Cell; 11]; (N + 1)])
+where
+    [(); (N + 1)]: Sized;
 
 #[derive(Debug, Clone)]
-struct GameState {
-    cells: Cells,
+struct GameState<const N: usize>
+where
+    [(); (N + 1)]: Sized,
+{
+    cells: Cells<N>,
     energy: usize,
 }
 
-impl Ord for GameState {
+impl<const N: usize> Ord for GameState<N>
+where
+    [(); (N + 1)]: Sized,
+{
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other.energy.cmp(&self.energy)
     }
 }
 
-impl PartialOrd for GameState {
+impl<const N: usize> PartialOrd for GameState<N>
+where
+    [(); (N + 1)]: Sized,
+{
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl PartialEq for GameState {
+impl<const N: usize> PartialEq for GameState<N>
+where
+    [(); (N + 1)]: Sized,
+{
     fn eq(&self, other: &Self) -> bool {
         self.energy == other.energy
     }
 }
 
-impl Eq for GameState {}
+impl<const N: usize> Eq for GameState<N> where [(); (N + 1)]: Sized {}
 
 const ROOM_COLUMNS: [usize; 4] = [2, 4, 6, 8];
 const HALLWAY_COLUMNS_ALLOWED: [usize; 7] = [0, 1, 3, 5, 7, 9, 10];
 
-impl GameState {
-    fn new(initial_amphipods: [Amphipod; 8]) -> Self {
-        let mut cells = [[Cell::Void; 11]; 3];
+impl<const N: usize> GameState<N>
+where
+    [(); (N + 1)]: Sized,
+{
+    fn new(initial_amphipods: [[Amphipod; N]; 4]) -> Self {
+        let mut cells = [[Cell::Void; 11]; N + 1];
 
+        // hallway line
         for cell in &mut cells[0] {
             *cell = Cell::Empty;
         }
 
-        cells[1][0] = Cell::Wall;
-        cells[1][1] = Cell::Wall;
-        cells[1][3] = Cell::Wall;
-        cells[2][1] = Cell::Wall;
-        cells[2][3] = Cell::Wall;
-        cells[1][5] = Cell::Wall;
-        cells[2][5] = Cell::Wall;
-        cells[1][7] = Cell::Wall;
-        cells[2][7] = Cell::Wall;
-        cells[1][9] = Cell::Wall;
-        cells[2][9] = Cell::Wall;
-        cells[1][10] = Cell::Wall;
+        // room lines
+        for (i, room_line) in cells.iter_mut().skip(1).enumerate() {
+            for (j, cell) in room_line.iter_mut().enumerate() {
+                *cell = if ROOM_COLUMNS.contains(&j) {
+                    Cell::Occupied(initial_amphipods[j / 2 - 1][i])
+                } else {
+                    Cell::Wall
+                };
+            }
+        }
 
-        cells[1][2] = Cell::Occupied(initial_amphipods[0]);
-        cells[2][2] = Cell::Occupied(initial_amphipods[1]);
-        cells[1][4] = Cell::Occupied(initial_amphipods[2]);
-        cells[2][4] = Cell::Occupied(initial_amphipods[3]);
-        cells[1][6] = Cell::Occupied(initial_amphipods[4]);
-        cells[2][6] = Cell::Occupied(initial_amphipods[5]);
-        cells[1][8] = Cell::Occupied(initial_amphipods[6]);
-        cells[2][8] = Cell::Occupied(initial_amphipods[7]);
+        // the two empty strips
+        for i in 3..(N + 1) {
+            cells[i][0] = Cell::Empty;
+            cells[i][10] = Cell::Empty;
+        }
 
         Self {
             cells: Cells(cells),
@@ -259,7 +287,7 @@ impl GameState {
         }
 
         // Amphipods in rooms
-        for i in [1, 2] {
+        for i in 1..=N {
             for j in ROOM_COLUMNS {
                 for target in HALLWAY_COLUMNS_ALLOWED {
                     if let Some(next_state) = self.moved_from_room_to_hallway((i, j), target) {
@@ -273,7 +301,10 @@ impl GameState {
     }
 }
 
-impl std::str::FromStr for GameState {
+impl<const N: usize> std::str::FromStr for GameState<N>
+where
+    [(); (N + 1)]: Sized,
+{
     type Err = ();
 
     // #############
@@ -282,27 +313,24 @@ impl std::str::FromStr for GameState {
     //   #A#D#C#A#
     //   #########
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut initial_amphipods = [Amphipod::Amber; 8];
+        let mut initial_amphipods = [[Amphipod::Amber; N]; 4];
 
-        let mut lines = s.lines().skip(2);
-        let chars = lines.next().unwrap().chars().collect::<Vec<_>>();
-
-        initial_amphipods[0] = Amphipod::from(chars[3]);
-        initial_amphipods[2] = Amphipod::from(chars[5]);
-        initial_amphipods[4] = Amphipod::from(chars[7]);
-        initial_amphipods[6] = Amphipod::from(chars[9]);
-
-        let chars = lines.next().unwrap().chars().collect::<Vec<_>>();
-        initial_amphipods[1] = Amphipod::from(chars[3]);
-        initial_amphipods[3] = Amphipod::from(chars[5]);
-        initial_amphipods[5] = Amphipod::from(chars[7]);
-        initial_amphipods[7] = Amphipod::from(chars[9]);
+        let lines = s.lines().skip(2).take(N);
+        for (i, line) in lines.enumerate() {
+            let chars = line.chars().skip(1).take(11).collect::<Vec<_>>();
+            for (j, col) in ROOM_COLUMNS.iter().enumerate() {
+                initial_amphipods[j][i] = Amphipod::from(chars[*col]);
+            }
+        }
 
         Ok(Self::new(initial_amphipods))
     }
 }
 
-impl Display for GameState {
+impl<const N: usize> Display for GameState<N>
+where
+    [(); (N + 1)]: Sized,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "#############")?;
         for i in 0..2 {
@@ -312,34 +340,33 @@ impl Display for GameState {
             }
             writeln!(f, "#")?;
         }
-        write!(f, "  ")?;
-        for i in 1..10 {
-            write!(f, "{}", self.cells.0[2][i])?;
+        for i in 2..=N {
+            write!(f, "  ")?;
+            for j in 1..10 {
+                write!(f, "{}", self.cells.0[i][j])?;
+            }
+            writeln!(f)?;
         }
-        writeln!(f)?;
         writeln!(f, "  #########")?;
         Ok(())
     }
 }
 
-impl Amphipod {
-    #[inline]
-    fn energy_per_step(&self) -> usize {
-        match self {
-            Self::Amber => 1,
-            Self::Bronze => 10,
-            Self::Copper => 100,
-            Self::Desert => 1000,
-        }
-    }
-}
-
-fn solved_least_amount_of_energy(state: &GameState) -> usize {
+fn solved_least_amount_of_energy<const N: usize>(state: &GameState<N>) -> usize
+where
+    [(); (N + 1)]: Sized,
+{
     let mut current_min = usize::MAX;
     solved_least_amount_of_energy_internal(state, &mut current_min)
 }
 
-fn solved_least_amount_of_energy_internal(state: &GameState, current_min: &mut usize) -> usize {
+fn solved_least_amount_of_energy_internal<const N: usize>(
+    state: &GameState<N>,
+    current_min: &mut usize,
+) -> usize
+where
+    [(); (N + 1)]: Sized,
+{
     if state.energy > *current_min {
         return usize::MAX;
     }
@@ -364,7 +391,7 @@ fn solved_least_amount_of_energy_internal(state: &GameState, current_min: &mut u
 mod tests {
     use super::*;
 
-    const INPUT_EXAMPLE: &str = "#############
+    const INPUT_EXAMPLE1: &str = "#############
 #...........#
 ###B#C#B#D###
   #A#D#C#A#
@@ -372,10 +399,27 @@ mod tests {
 ";
 
     #[test]
-    fn example() {
-        let game_state: GameState = INPUT_EXAMPLE.parse().unwrap();
-        assert_eq!(game_state.to_string(), INPUT_EXAMPLE);
+    fn part1() {
+        let game_state: GameState<2> = INPUT_EXAMPLE1.parse().unwrap();
+        assert_eq!(game_state.to_string(), INPUT_EXAMPLE1);
 
         assert_eq!(solved_least_amount_of_energy(&game_state), 12521);
+    }
+
+    const INPUT_EXAMPLE2: &str = "#############
+#...........#
+###B#C#B#D###
+  #D#C#B#A#
+  #D#B#A#C#
+  #A#D#C#A#
+  #########
+";
+
+    #[test]
+    fn part2() {
+        let game_state: GameState<4> = INPUT_EXAMPLE2.parse().unwrap();
+        assert_eq!(game_state.to_string(), INPUT_EXAMPLE2);
+
+        assert_eq!(solved_least_amount_of_energy(&game_state), 44169);
     }
 }
