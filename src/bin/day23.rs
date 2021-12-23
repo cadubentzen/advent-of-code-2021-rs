@@ -3,13 +3,16 @@
 #![feature(const_trait_impl)]
 #![feature(generic_const_exprs)]
 
-use std::{fmt::Display, hash::Hash};
+use std::{collections::HashMap, fmt::Display, hash::Hash};
 
 const INPUT: &str = include_str!("../../inputs/day23.txt");
 
 fn main() {
     let game_state: GameState<2> = INPUT.parse().unwrap();
-    println!("Answer 1: {}", solved_least_amount_of_energy(&game_state));
+    println!("Answer 1: {}", solve_least_amount_of_energy(&game_state));
+
+    let game_state = unfold(&game_state);
+    println!("Answer 2: {}", solve_least_amount_of_energy(&game_state));
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Hash)]
@@ -156,10 +159,10 @@ where
             }
         }
 
-        // the two empty strips
-        for i in 3..(N + 1) {
-            cells[i][0] = Cell::Empty;
-            cells[i][10] = Cell::Empty;
+        // the two extra empty strips
+        for line in cells.iter_mut().skip(3) {
+            line[0] = Cell::Empty;
+            line[10] = Cell::Empty;
         }
 
         Self {
@@ -168,19 +171,29 @@ where
         }
     }
 
-    /// Solved in the following configuration:
-    /// ...........
-    /// ##A#B#C#D##
-    ///  #A#B#C#D#
     fn is_solved(&self) -> bool {
-        self.cells.0[1][2] == Cell::Occupied(Amphipod::Amber)
-            && self.cells.0[2][2] == Cell::Occupied(Amphipod::Amber)
-            && self.cells.0[1][4] == Cell::Occupied(Amphipod::Bronze)
-            && self.cells.0[2][4] == Cell::Occupied(Amphipod::Bronze)
-            && self.cells.0[1][6] == Cell::Occupied(Amphipod::Copper)
-            && self.cells.0[2][6] == Cell::Occupied(Amphipod::Copper)
-            && self.cells.0[1][8] == Cell::Occupied(Amphipod::Desert)
-            && self.cells.0[2][8] == Cell::Occupied(Amphipod::Desert)
+        for (kind, column) in [
+            Amphipod::Amber,
+            Amphipod::Bronze,
+            Amphipod::Copper,
+            Amphipod::Desert,
+        ]
+        .into_iter()
+        .zip(ROOM_COLUMNS)
+        {
+            for i in 1..=N {
+                match self.cells.0[i][column] {
+                    Cell::Occupied(kind_in_room) => {
+                        if kind_in_room != kind {
+                            return false;
+                        }
+                    }
+                    _ => return false,
+                }
+            }
+        }
+
+        true
     }
 
     fn hallway_path_is_clear(&self, from: usize, to: usize) -> bool {
@@ -200,46 +213,56 @@ where
         true
     }
 
+    fn room_path_is_clear(&self, column: usize, row: usize) -> bool {
+        // in this case we leave for the hallway to check
+        if row == 0 {
+            return true;
+        }
+        for i in 1..=row {
+            if self.cells.0[i][column] != Cell::Empty {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn room_only_has_same_kind_or_empty(&self, column: usize, kind: Amphipod) -> bool {
+        for i in 1..=N {
+            match self.cells.0[i][column] {
+                Cell::Empty => (),
+                Cell::Wall => unreachable!(),
+                Cell::Void => unreachable!(),
+                Cell::Occupied(kind_in_room) => {
+                    if kind_in_room != kind {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
     fn moved_from_hallway_to_room(&self, column: usize) -> Option<Self> {
         if let Cell::Occupied(amphipod) = self.cells.0[0][column] {
             let target_column = amphipod.column();
             assert!(column != target_column);
 
-            // Check the path to column is empty
-            if !self.hallway_path_is_clear(column, target_column) {
+            if !self.hallway_path_is_clear(column, target_column)
+                || !self.room_only_has_same_kind_or_empty(target_column, amphipod)
+            {
                 return None;
             }
 
-            // "Amphipods will never move from the hallway into a room unless
-            // that room is their destination room and that room contains no
-            // amphipods which do not also have that room as their own
-            // destination. If an amphipod's starting room is not its
-            // destination room, it can stay in that room until it leaves the
-            // room."
-            // Try and move to either:
-            // 1. Empty column it belongs to - in this case move to the bottom of the column
-            if self.cells.0[1][target_column] == Cell::Empty
-                && self.cells.0[2][target_column] == Cell::Empty
-            {
-                let mut next_state = self.clone();
-                next_state.cells.0[2][target_column] = Cell::Occupied(amphipod);
-                next_state.cells.0[0][column] = Cell::Empty;
+            for i in (1..=N).rev() {
+                if self.room_path_is_clear(target_column, i) {
+                    let mut next_state = self.clone();
+                    next_state.cells.0[i][target_column] = Cell::Occupied(amphipod);
+                    next_state.cells.0[0][column] = Cell::Empty;
 
-                next_state.energy +=
-                    (2 + column.abs_diff(target_column)) * amphipod.energy_per_step();
-                return Some(next_state);
-            }
-            // 2. Column with another one of its kind - in this case move to the top of the column
-            else if self.cells.0[1][target_column] == Cell::Empty
-                && self.cells.0[2][target_column] == Cell::Occupied(amphipod)
-            {
-                let mut next_state = self.clone();
-                next_state.cells.0[1][target_column] = Cell::Occupied(amphipod);
-                next_state.cells.0[0][column] = Cell::Empty;
-
-                next_state.energy +=
-                    (1 + column.abs_diff(target_column)) * amphipod.energy_per_step();
-                return Some(next_state);
+                    next_state.energy +=
+                        (i + column.abs_diff(target_column)) * amphipod.energy_per_step();
+                    return Some(next_state);
+                }
             }
         }
 
@@ -254,15 +277,25 @@ where
         if let Cell::Empty = self.cells.0[0][target_column] {
             if let Cell::Occupied(amphipod) = self.cells.0[row][column] {
                 let final_column = amphipod.column();
-                if ((row == 2
-                    && (!matches!(self.cells.0[1][column], Cell::Empty) || column == final_column))
-                    || (row == 1
-                        && column == final_column
-                        && self.cells.0[2][column] == Cell::Occupied(amphipod)))
+                if column == final_column {
+                    let mut already_positioned = true;
+                    for i in row..=N {
+                        if self.cells.0[i][column] != Cell::Occupied(amphipod) {
+                            already_positioned = false;
+                            break;
+                        }
+                    }
+                    if already_positioned {
+                        return None;
+                    }
+                }
+
+                if !self.room_path_is_clear(column, row - 1)
                     || !self.hallway_path_is_clear(column, target_column)
                 {
                     return None;
                 }
+
                 let mut next_state = self.clone();
                 next_state.cells.0[0][target_column] = Cell::Occupied(amphipod);
                 next_state.cells.0[row][column] = Cell::Empty;
@@ -301,17 +334,46 @@ where
     }
 }
 
+fn unfold(game_state: &GameState<2>) -> GameState<4> {
+    let mut cells = [[Cell::Void; 11]; 5];
+    for (i, line) in cells.iter_mut().take(2).enumerate() {
+        for (j, cell) in line.iter_mut().enumerate() {
+            *cell = game_state.cells.0[i][j];
+        }
+    }
+    for j in 0..11 {
+        cells[4][j] = game_state.cells.0[2][j];
+    }
+    cells[2][2] = Cell::Occupied(Amphipod::Desert);
+    cells[2][4] = Cell::Occupied(Amphipod::Copper);
+    cells[2][6] = Cell::Occupied(Amphipod::Bronze);
+    cells[2][8] = Cell::Occupied(Amphipod::Amber);
+
+    cells[3][2] = Cell::Occupied(Amphipod::Desert);
+    cells[3][4] = Cell::Occupied(Amphipod::Bronze);
+    cells[3][6] = Cell::Occupied(Amphipod::Amber);
+    cells[3][8] = Cell::Occupied(Amphipod::Copper);
+
+    for line in cells.iter_mut().skip(2).take(2) {
+        for cell in line.iter_mut().skip(1).take(9) {
+            if *cell == Cell::Void {
+                *cell = Cell::Wall;
+            }
+        }
+    }
+
+    GameState {
+        cells: Cells(cells),
+        energy: game_state.energy,
+    }
+}
+
 impl<const N: usize> std::str::FromStr for GameState<N>
 where
     [(); (N + 1)]: Sized,
 {
     type Err = ();
 
-    // #############
-    // #...........#
-    // ###B#C#B#D###
-    //   #A#D#C#A#
-    //   #########
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut initial_amphipods = [[Amphipod::Amber; N]; 4];
 
@@ -352,21 +414,25 @@ where
     }
 }
 
-fn solved_least_amount_of_energy<const N: usize>(state: &GameState<N>) -> usize
+fn solve_least_amount_of_energy<const N: usize>(state: &GameState<N>) -> usize
 where
     [(); (N + 1)]: Sized,
 {
     let mut current_min = usize::MAX;
-    solved_least_amount_of_energy_internal(state, &mut current_min)
+    let mut cache = HashMap::new();
+    solved_least_amount_of_energy_internal(state, &mut current_min, &mut cache)
 }
 
 fn solved_least_amount_of_energy_internal<const N: usize>(
     state: &GameState<N>,
     current_min: &mut usize,
+    cache: &mut HashMap<Cells<N>, usize>,
 ) -> usize
 where
     [(); (N + 1)]: Sized,
 {
+    // println!("Visiting with energy {}:\n{}", state.energy, state);
+    // std::io::stdin().read_exact(&mut [0]).unwrap();
     if state.energy > *current_min {
         return usize::MAX;
     }
@@ -374,15 +440,22 @@ where
     if state.is_solved() {
         if state.energy < *current_min {
             *current_min = state.energy;
-            println!("current least amount of energy is {}", state.energy)
+            // println!("current least amount of energy is {}", state.energy)
         }
         return state.energy;
+    }
+
+    let cached_energy = cache.entry(state.cells.clone()).or_insert(usize::MAX);
+    if *cached_energy <= state.energy {
+        return usize::MAX;
+    } else {
+        *cached_energy = state.energy;
     }
 
     let next_states = state.possible_next_states();
     next_states
         .iter()
-        .map(|ns| solved_least_amount_of_energy_internal(ns, current_min))
+        .map(|ns| solved_least_amount_of_energy_internal(ns, current_min, cache))
         .min()
         .unwrap_or(usize::MAX)
 }
@@ -403,7 +476,7 @@ mod tests {
         let game_state: GameState<2> = INPUT_EXAMPLE1.parse().unwrap();
         assert_eq!(game_state.to_string(), INPUT_EXAMPLE1);
 
-        assert_eq!(solved_least_amount_of_energy(&game_state), 12521);
+        assert_eq!(solve_least_amount_of_energy(&game_state), 12521);
     }
 
     const INPUT_EXAMPLE2: &str = "#############
@@ -417,9 +490,10 @@ mod tests {
 
     #[test]
     fn part2() {
-        let game_state: GameState<4> = INPUT_EXAMPLE2.parse().unwrap();
+        let game_state: GameState<2> = INPUT_EXAMPLE1.parse().unwrap();
+        let game_state = unfold(&game_state);
         assert_eq!(game_state.to_string(), INPUT_EXAMPLE2);
 
-        assert_eq!(solved_least_amount_of_energy(&game_state), 44169);
+        assert_eq!(solve_least_amount_of_energy(&game_state), 44169);
     }
 }
