@@ -6,6 +6,16 @@
 use std::{collections::HashMap, fmt::Display, hash::Hash};
 
 const INPUT: &str = include_str!("../../inputs/day23.txt");
+const INPUT_EXAMPLE3: &str = "##############
+#............#
+###B#C#B#D####
+  #D#C#B#A#
+  #D#B#A#C#
+  #D#C#B#A#
+  #D#B#A#C#
+  #A#D#C#A#
+  #########
+";
 
 fn main() {
     let game_state: GameState<2> = INPUT.parse().unwrap();
@@ -13,6 +23,9 @@ fn main() {
 
     let game_state = unfold(&game_state);
     println!("Answer 2: {}", solve_least_amount_of_energy(&game_state));
+
+    let game_state: GameState<6> = INPUT_EXAMPLE3.parse().unwrap();
+    println!("Answer 3: {}", solve_least_amount_of_energy(&game_state));
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq, Hash)]
@@ -91,7 +104,7 @@ impl Display for Amphipod {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Cells<const N: usize>([[Cell; 11]; (N + 1)])
+struct Cells<const N: usize>([[Cell; 12]; (N + 1)])
 where
     [(); (N + 1)]: Sized;
 
@@ -141,7 +154,7 @@ where
     [(); (N + 1)]: Sized,
 {
     fn new(initial_amphipods: [[Amphipod; N]; 4]) -> Self {
-        let mut cells = [[Cell::Void; 11]; N + 1];
+        let mut cells = [[Cell::Void; 12]; N + 1];
 
         // hallway line
         for cell in &mut cells[0] {
@@ -318,12 +331,22 @@ where
                 next_states.push(next_state);
             }
         }
+        if N == 6 {
+            if let Some(next_state) = self.moved_from_hallway_to_room(11) {
+                next_states.push(next_state);
+            }
+        }
 
         // Amphipods in rooms
         for i in 1..=N {
             for j in ROOM_COLUMNS {
                 for target in HALLWAY_COLUMNS_ALLOWED {
                     if let Some(next_state) = self.moved_from_room_to_hallway((i, j), target) {
+                        next_states.push(next_state);
+                    }
+                }
+                if N == 6 {
+                    if let Some(next_state) = self.moved_from_room_to_hallway((i, j), 11) {
                         next_states.push(next_state);
                     }
                 }
@@ -335,13 +358,13 @@ where
 }
 
 fn unfold(game_state: &GameState<2>) -> GameState<4> {
-    let mut cells = [[Cell::Void; 11]; 5];
+    let mut cells = [[Cell::Void; 12]; 5];
     for (i, line) in cells.iter_mut().take(2).enumerate() {
         for (j, cell) in line.iter_mut().enumerate() {
             *cell = game_state.cells.0[i][j];
         }
     }
-    for j in 0..11 {
+    for j in 0..12 {
         cells[4][j] = game_state.cells.0[2][j];
     }
     cells[2][2] = Cell::Occupied(Amphipod::Desert);
@@ -397,7 +420,7 @@ where
         writeln!(f, "#############")?;
         for i in 0..2 {
             write!(f, "#")?;
-            for c in self.cells.0[i] {
+            for c in self.cells.0[i].iter().take(11) {
                 write!(f, "{}", c)?;
             }
             writeln!(f, "#")?;
@@ -495,5 +518,12 @@ mod tests {
         assert_eq!(game_state.to_string(), INPUT_EXAMPLE2);
 
         assert_eq!(solve_least_amount_of_energy(&game_state), 44169);
+    }
+
+    #[test]
+    fn part3() {
+        // https://www.reddit.com/r/adventofcode/comments/rn48sp/2021_day_23_part_3/
+        let game_state: GameState<6> = INPUT_EXAMPLE3.parse().unwrap();
+        assert_eq!(solve_least_amount_of_energy(&game_state), 82849);
     }
 }
